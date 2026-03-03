@@ -38,7 +38,8 @@ class FSS:
                  param_bounds=None,
                  scaling_window=(-2.0, 2.0),     # NEW default
                  optimization_routine=None,
-                 min_points_per_size=60):        # NEW default
+                 min_points_per_size=60,          # NEW default
+                 fixed_params=None):
         self.dataset = dataset
         self.poly_order = poly_order
         self.initial_params = initial_params
@@ -46,6 +47,37 @@ class FSS:
         self.scaling_window = scaling_window
         self.optimization_routine = optimization_routine
         self.min_points_per_size = int(min_points_per_size)
+        # fixed_params: dict mapping param index to fixed value
+        # e.g. {2: 0.5} fixes b=1/nu=0.5
+        self.fixed_params = fixed_params or {}
+
+    def _full_params(self, free_params):
+        """Reconstruct full (beta_c, a, b) from free params + fixed params."""
+        if not self.fixed_params:
+            return free_params
+        full = np.empty(3)
+        free_idx = 0
+        for i in range(3):
+            if i in self.fixed_params:
+                full[i] = self.fixed_params[i]
+            else:
+                full[i] = free_params[free_idx]
+                free_idx += 1
+        return full
+
+    def _free_initial_params(self):
+        """Extract only the free (non-fixed) initial params."""
+        if not self.fixed_params:
+            return self.initial_params
+        return tuple(v for i, v in enumerate(self.initial_params) if i not in self.fixed_params)
+
+    def _free_bounds(self):
+        """Extract bounds for free parameters only."""
+        if self.param_bounds is None:
+            return None
+        if not self.fixed_params:
+            return self.param_bounds
+        return [b for i, b in enumerate(self.param_bounds) if i not in self.fixed_params]
 
     def rescaled_combined_data(self, params):
         # params ordering: [beta_c, a, b] (adjust if yours differs)
@@ -114,22 +146,28 @@ class FSS:
         residuals = z[1]
         return float(residuals[0]) if residuals.size else np.inf
 
-    def optimization(self,):
+    def _free_objective(self, free_params):
+        """Objective in terms of free parameters only."""
+        return self.objective_function(self._full_params(free_params))
+
+    def optimization(self):
+        x0 = self._free_initial_params()
+        bounds = self._free_bounds()
 
         if self.optimization_routine == "L-BFGS-B":
-            if self.param_bounds != None:
-                result = minimize(self.objective_function, x0=self.initial_params, method=self.optimization_routine, bounds=self.param_bounds, options= {'ftol': 1e-12,'gtol': 1e-12,'maxiter': 50})
+            if bounds is not None:
+                result = minimize(self._free_objective, x0=x0, method=self.optimization_routine, bounds=bounds, options= {'ftol': 1e-12,'gtol': 1e-12,'maxiter': 50})
             else:
                 raise ValueError("L-BFGS-B need valid param-bounds")
         elif self.optimization_routine == "Nelder-Mead":
-            result = minimize(self.objective_function, x0=self.initial_params, method=self.optimization_routine, options={'xatol': 1e-12, 'fatol': 1e-12, 'maxiter': 10000})
+            result = minimize(self._free_objective, x0=x0, method=self.optimization_routine, options={'xatol': 1e-12, 'fatol': 1e-12, 'maxiter': 10000})
         elif self.optimization_routine == "dual-annealing":
-            if self.param_bounds != None:
-                result = dual_annealing(self.objective_function,bounds=self.param_bounds)
+            if bounds is not None:
+                result = dual_annealing(self._free_objective, bounds=bounds)
             else:
                 raise ValueError("dual-annealing need valid param-bounds")
 
-        return result.x, result.fun
+        return self._full_params(result.x), result.fun
 
 
 

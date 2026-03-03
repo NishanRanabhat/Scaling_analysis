@@ -19,11 +19,13 @@ if __name__ == "__main__":
     #   dt=0.002, a=1.80, h=0.00: (0.7357, 0.090, 0.427)
     #   dt=0.002, a=1.80, h=0.30: (0.8007, 0.111, 0.425)
 
+    # --- Fixed nu=2 (b=0.5), optimize only beta_c and a=kappa/nu ---
     runner = ExperimentRunner(
-        dt="0.002", a="1.80", h="0.30",
-        initial_params=(0.80, 0.11, 0.43),
-        sizes=[200, 250, 300, 350, 400],
+        dt="0.001", a="0.80", h="0.00",
+        initial_params=(0.4748, 0.053, 0.50),
+        sizes=[250, 300, 350, 400],
         poly_order=10,
+        fixed_params={2: 0.5},  # fix b=1/nu=0.5, i.e. nu=2
     )
 
     # ============================================================
@@ -34,17 +36,17 @@ if __name__ == "__main__":
     # ============================================================
     #  EXPERIMENT 2: Window scan
     # ============================================================
-    #runner.window_scan(np.arange(0.3, 2.1, 0.1))
+    runner.window_scan(np.arange(0.3, 2.1, 0.1), chain_initial=False)
 
     # ============================================================
     #  EXPERIMENT 3: Polynomial order scan
     # ============================================================
-    #runner.poly_order_scan(range(6, 16), w=0.8)
+    #runner.poly_order_scan(range(6, 16), w=0.6)
 
     # ============================================================
     #  EXPERIMENT 4: Jackknife error estimation
     # ============================================================
-    #runner.jackknife(w=0.8)
+    #runner.jackknife(w=0.6)
 
     # ============================================================
     #  EXPERIMENT 5: Window scan for each poly_order

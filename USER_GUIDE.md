@@ -163,12 +163,34 @@ fss = FSS(
     optimization_routine="Nelder-Mead",
     min_points_per_size=60,           # minimum data points per L
     param_bounds=None,                # required for L-BFGS-B / dual-annealing
+    fixed_params=None,                # dict to fix params, e.g. {2: 0.5}
 )
 
 params, residual = fss.optimization()
-# params = array([beta_c, a, b])
+# params = array([beta_c, a, b])  (always returns all 3, including fixed ones)
 # residual = sum of squared polynomial fit residuals
 ```
+
+**Fixing parameters (`fixed_params`):**
+
+You can fix any subset of the three parameters during optimization by passing
+a dictionary mapping parameter index to its fixed value:
+
+| Index | Parameter | Physical meaning |
+|-------|-----------|-----------------|
+| 0     | beta_c    | Critical point   |
+| 1     | a         | kappa / nu       |
+| 2     | b         | 1 / nu           |
+
+Examples:
+- `fixed_params={2: 0.5}` — fix nu=2 (b=1/nu=0.5), optimize only beta_c and a
+- `fixed_params={0: 0.477}` — fix beta_c, optimize only a and b
+- `fixed_params={0: 0.477, 2: 0.5}` — fix both beta_c and b, optimize only a
+
+The optimizer only sees the free parameters, but `optimization()` always
+returns the full 3-element array with fixed values filled in. The
+`initial_params` tuple should still contain all three values (the fixed
+ones are ignored during optimization but used to reconstruct the full array).
 
 **Key internal methods:**
 
@@ -256,6 +278,7 @@ runner = ExperimentRunner(
     min_points_per_size=60,             # min points guarantee
     obs_col=None,                       # None = use registry default
     param_bounds=None,                  # needed for L-BFGS-B
+    fixed_params=None,                  # fix params, e.g. {2: 0.5} for nu=2
 )
 ```
 
@@ -481,6 +504,22 @@ If the window is too narrow, the code automatically expands to include the
 nearest `min_points_per_size` points around X=0. This prevents degenerate
 fits with too few points.
 
+### fixed_params
+
+Dictionary mapping parameter index → fixed value. When set, the optimizer
+only varies the remaining free parameters. This reduces the dimensionality
+of the optimization and eliminates local minima associated with the fixed
+parameter.
+
+| Scenario | Setting |
+|----------|---------|
+| Test nu=2 | `fixed_params={2: 0.5}` |
+| Fix known beta_c | `fixed_params={0: 0.477}` |
+| Fix both beta_c and nu | `fixed_params={0: 0.477, 2: 0.5}` |
+| All free (default) | `fixed_params=None` |
+
+Can also be overridden per-call: `runner.single_run(w=0.6, fixed_params={2: 0.5})`
+
 ### optimization_routine
 
 | Routine | When to use |
@@ -555,6 +594,76 @@ runner.poly_order_scan(range(6, 16), w=1.0)
 # Step 4: Jackknife for error bars at chosen window
 runner.jackknife(w=1.0)
 ```
+
+### Fix an exponent and check the collapse
+
+If you have a theoretical prediction for one of the exponents (e.g., nu=2),
+you can fix it and let the optimizer find the best remaining parameters.
+This is useful for:
+- Testing whether a predicted exponent is consistent with the data
+- Reducing the number of free parameters to stabilize the fit
+- Comparing residuals between free and fixed fits
+
+**Fix nu=2 (b=1/nu=0.5) and scan windows:**
+
+```python
+runner = ExperimentRunner(
+    dt="0.001", a="0.80", h="0.00",
+    initial_params=(0.4748, 0.053, 0.50),
+    sizes=[250, 300, 350, 400],
+    poly_order=10,
+    fixed_params={2: 0.5},  # fix b=1/nu=0.5, i.e. nu=2
+)
+
+# Window scan with fixed nu — only beta_c and kappa/nu are optimized
+runner.window_scan(np.arange(0.3, 2.1, 0.1), chain_initial=False)
+```
+
+**Fix beta_c and optimize exponents only:**
+
+```python
+runner = ExperimentRunner(
+    ...,
+    fixed_params={0: 0.477},  # fix beta_c
+)
+runner.single_run(w=0.8)
+```
+
+**Compare free vs fixed fits:**
+
+```python
+# Free fit (all 3 parameters)
+runner_free = ExperimentRunner(
+    dt="0.001", a="0.80", h="0.00",
+    initial_params=(0.4748, 0.053, 0.50),
+    sizes=[250, 300, 350, 400],
+)
+runner_free.single_run(w=0.6)
+
+# Fixed nu=2
+runner_fixed = ExperimentRunner(
+    dt="0.001", a="0.80", h="0.00",
+    initial_params=(0.4748, 0.053, 0.50),
+    sizes=[250, 300, 350, 400],
+    fixed_params={2: 0.5},
+)
+runner_fixed.single_run(w=0.6)
+
+# Compare the residuals: if they are similar, nu=2 is consistent with the data
+```
+
+**Parameter index reference:**
+
+| Index | Parameter | Example fixed value | Meaning |
+|-------|-----------|--------------------|---------|
+| 0     | beta_c    | `{0: 0.477}`      | Fix critical point |
+| 1     | a (kappa/nu) | `{1: 0.053}`   | Fix observable exponent ratio |
+| 2     | b (1/nu)  | `{2: 0.5}`        | Fix correlation length exponent (nu=2) |
+
+You can fix multiple parameters: `fixed_params={0: 0.477, 2: 0.5}` fixes
+both beta_c and nu, optimizing only kappa/nu.
+
+---
 
 ### Compare all four datasets
 
@@ -637,6 +746,18 @@ This indicates:
 
 The (dt, a, h) combination is not in `DATASET_REGISTRY`. Add it
 (see Section 11).
+
+### Fixed-parameter fit has much larger residuals than free fit
+
+This means the fixed exponent value is not compatible with the data at the
+current system sizes. The discrepancy could be due to:
+- Corrections to scaling (try dropping smaller system sizes)
+- The true exponent is different from the fixed value
+- The window is too large, including non-scaling data
+
+Compare residuals at multiple window widths: if the fixed fit consistently
+has 5-10x larger residuals than the free fit, the data does not support
+that exponent value.
 
 ### Data shape mismatch
 

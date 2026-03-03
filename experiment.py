@@ -93,7 +93,8 @@ class ExperimentRunner:
                  scaling_window=(-0.8, 0.8),
                  optimization_routine="Nelder-Mead",
                  param_bounds=None, obs_col=None,
-                 min_points_per_size=60, data_dir=None):
+                 min_points_per_size=60, data_dir=None,
+                 fixed_params=None):
 
         self.dt = dt
         self.a = a
@@ -107,10 +108,12 @@ class ExperimentRunner:
         self.obs_col = obs_col
         self.min_points_per_size = min_points_per_size
         self.data_dir = data_dir
+        self.fixed_params = fixed_params
 
     def _run_once(self, sizes=None, w=None, poly_order=None,
                   initial_params=None, optimization_routine=None,
-                  param_bounds=None, min_points_per_size=None):
+                  param_bounds=None, min_points_per_size=None,
+                  fixed_params=None):
         """Run a single FSS optimization. Returns (params_array, residual)."""
         sizes = sizes or self.sizes
         w = w if w is not None else self.scaling_window[1]
@@ -120,6 +123,7 @@ class ExperimentRunner:
         param_bounds = param_bounds if param_bounds is not None else self.param_bounds
         min_points = (min_points_per_size if min_points_per_size is not None
                       else self.min_points_per_size)
+        fixed_params = fixed_params if fixed_params is not None else self.fixed_params
 
         dataset = load_dataset(self.dt, self.a, self.h,
                                sizes=sizes, obs_col=self.obs_col,
@@ -131,7 +135,8 @@ class ExperimentRunner:
                   param_bounds=param_bounds,
                   scaling_window=(-w, w),
                   optimization_routine=optimization_routine,
-                  min_points_per_size=min_points)
+                  min_points_per_size=min_points,
+                  fixed_params=fixed_params)
 
         params, residual = fss.optimization()
         return params, residual
